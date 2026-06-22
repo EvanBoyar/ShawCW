@@ -15,16 +15,25 @@ data class DetectorConfig(
     val highHz: Double = 700.0,
     /** Number of Goertzel bins spread across [lowHz]..[highHz]. */
     val binCount: Int = 24,
-    /** Tone turns on when band magnitude exceeds floor by this factor. */
-    val onFactor: Double = 6.0,
-    /** Tone turns off when band magnitude falls below floor by this factor. */
-    val offFactor: Double = 3.0,
+    /**
+     * Tone turns on when the strongest bin is at least this many times the
+     * median bin (spectral contrast). A real CW tone is one bin towering over
+     * the rest; broadband noise lifts every bin together and stays near 1.
+     */
+    val onContrast: Double = 5.0,
+    /** Tone turns off when contrast drops below this, giving hysteresis. */
+    val offContrast: Double = 3.0,
     /** Consecutive blocks above the on threshold before reporting a tone. */
     val minOnBlocks: Int = 2,
     /** Consecutive blocks below the off threshold before clearing a tone. */
     val minOffBlocks: Int = 3,
-    /** Smoothing for the background noise floor estimate (0..1, lower is slower). */
-    val floorAdapt: Double = 0.05,
+    /**
+     * Absolute magnitude the peak bin must reach before any detection. Guards
+     * against dividing near-zero magnitudes in digital silence, where contrast
+     * would otherwise be meaningless. Not a loudness gate; real room noise sits
+     * well above this.
+     */
+    val absoluteGate: Double = 0.0008,
     /** Half-width in Hz of frequencies notched out (the vibration signature). */
     val notchHalfWidthHz: Double = 8.0,
 ) {
@@ -32,7 +41,7 @@ data class DetectorConfig(
         require(lowHz < highHz) { "lowHz must be below highHz" }
         require(centerHz in lowHz..highHz) { "centerHz must sit within the band" }
         require(binCount >= 1) { "need at least one bin" }
-        require(offFactor < onFactor) { "offFactor must be below onFactor for hysteresis" }
+        require(offContrast < onContrast) { "offContrast must be below onContrast for hysteresis" }
     }
 }
 
@@ -42,9 +51,9 @@ data class Detection(
     val isTone: Boolean,
     /** Best estimate of the dominant tone frequency in Hz. */
     val dominantHz: Double,
-    /** Band magnitude of the strongest bin. */
+    /** Magnitude of the strongest bin. */
     val magnitude: Double,
-    /** Background noise floor the detector is currently tracking. */
+    /** Median bin magnitude, the in-band noise reference for this block. */
     val noiseFloor: Double,
     /** Per-bin magnitudes for this block, aligned with [ToneDetector.binFrequencies]. */
     val magnitudes: DoubleArray,
@@ -72,11 +81,13 @@ data class Detection(
 /**
  * Turns a stream of audio blocks into on/off tone events.
  *
- * The detector keys on a sustained narrow peak above a slowly adapting noise
- * floor rather than on raw level. Static is broadband and raises every bin
- * together, so it lifts the floor without producing a peak and is rejected.
- * Hysteresis plus the off-debounce ([minOffBlocks]) lets a fading tone dip in
- * strength without being chopped into separate elements.
+ * Detection keys on spectral contrast within each block: how far the strongest
+ * bin stands above the median of the band. This is independent of overall
+ * level, so a quiet room (all bins low and roughly equal) and loud static (all
+ * bins high and roughly equal) both read as no tone, while a real CW signal
+ * (one bin dominating) reads as a tone at any volume. Hysteresis plus the
+ * off-debounce ([minOffBlocks]) lets a fading tone dip without being chopped
+ * into separate elements.
  *
  * Frequencies inside a notch (see [setNotches]) are ignored, which is how the
  * phone's own vibration signature is kept from self triggering the detector.
@@ -87,8 +98,6 @@ class ToneDetector(private val config: DetectorConfig) {
     private val binHz: DoubleArray
     private var notches: List<Double> = emptyList()
 
-    private var floor = 0.0
-    private var floorPrimed = false
     private var active = false
     private var onCount = 0
     private var offCount = 0
@@ -116,10 +125,8 @@ class ToneDetector(private val config: DetectorConfig) {
     private fun isNotched(hz: Double): Boolean =
         notches.any { abs(it - hz) <= config.notchHalfWidthHz }
 
-    /** Resets all adaptive state, for example when settings change. */
+    /** Resets all state, for example when settings change. */
     fun reset() {
-        floor = 0.0
-        floorPrimed = false
         active = false
         onCount = 0
         offCount = 0
@@ -127,28 +134,26 @@ class ToneDetector(private val config: DetectorConfig) {
 
     fun process(block: FloatArray): Detection {
         val mags = DoubleArray(bins.size)
+        val bandMags = ArrayList<Double>(bins.size)
         var peakMag = 0.0
         var peakIdx = -1
         for (i in bins.indices) {
             if (isNotched(binHz[i])) continue
             val m = bins[i].magnitude(block)
             mags[i] = m
+            bandMags.add(m)
             if (m > peakMag) {
                 peakMag = m
                 peakIdx = i
             }
         }
 
-        if (!floorPrimed) {
-            floor = peakMag
-            floorPrimed = true
-        }
-
-        val onThreshold = floor * config.onFactor
-        val offThreshold = floor * config.offFactor
+        val median = medianOf(bandMags)
+        val contrast = peakMag / median.coerceAtLeast(1e-6)
+        val gateOpen = peakMag >= config.absoluteGate
 
         if (!active) {
-            if (peakMag > onThreshold) {
+            if (gateOpen && contrast >= config.onContrast) {
                 onCount++
                 if (onCount >= config.minOnBlocks) {
                     active = true
@@ -158,7 +163,7 @@ class ToneDetector(private val config: DetectorConfig) {
                 onCount = 0
             }
         } else {
-            if (peakMag < offThreshold) {
+            if (!gateOpen || contrast < config.offContrast) {
                 offCount++
                 if (offCount >= config.minOffBlocks) {
                     active = false
@@ -169,14 +174,19 @@ class ToneDetector(private val config: DetectorConfig) {
             }
         }
 
-        // Only learn the floor from quiet blocks, otherwise a long tone would
-        // be absorbed into the background and the detector would go deaf.
-        if (!active) {
-            floor += config.floorAdapt * (peakMag - floor)
-        }
-
         val dominantHz = if (peakIdx >= 0) interpolatedHz(peakIdx, mags) else config.centerHz
-        return Detection(active, dominantHz, peakMag, floor, mags)
+        return Detection(active, dominantHz, peakMag, median, mags)
+    }
+
+    private fun medianOf(values: List<Double>): Double {
+        if (values.isEmpty()) return 0.0
+        val sorted = values.sorted()
+        val mid = sorted.size / 2
+        return if (sorted.size % 2 == 1) {
+            sorted[mid]
+        } else {
+            (sorted[mid - 1] + sorted[mid]) / 2.0
+        }
     }
 
     /**
