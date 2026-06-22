@@ -40,6 +40,9 @@ class ListeningService : Service() {
         if (!started) {
             started = true
             startForeground()
+            // The running service is the source of truth for "listening", so the
+            // UI stays correct even if the flag is touched elsewhere.
+            AppState.updateSettings { it.copy(listening = true) }
             engine.start(AppState.settings.value)
             AppState.settings
                 .onEach { engine.update(it) }
@@ -81,6 +84,7 @@ class ListeningService : Service() {
     override fun onDestroy() {
         engine.release()
         scope.cancel()
+        AppState.updateSettings { it.copy(listening = false) }
         super.onDestroy()
     }
 

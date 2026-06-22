@@ -24,5 +24,11 @@ object FrequencyColor {
         }
     }
 
+    /** Position of [hz] within the band as a fraction 0 (low) to 1 (high). */
+    fun position(hz: Double, lowHz: Double, highHz: Double): Float {
+        if (highHz <= lowHz) return 0.5f
+        return ((hz - lowHz) / (highHz - lowHz)).coerceIn(0.0, 1.0).toFloat()
+    }
+
     private fun lerp(a: Double, b: Double, t: Double): Double = a + (b - a) * t.coerceIn(0.0, 1.0)
 }

@@ -14,7 +14,7 @@ data class DetectorConfig(
     val centerHz: Double = 600.0,
     val highHz: Double = 700.0,
     /** Number of Goertzel bins spread across [lowHz]..[highHz]. */
-    val binCount: Int = 9,
+    val binCount: Int = 24,
     /** Tone turns on when band magnitude exceeds floor by this factor. */
     val onFactor: Double = 6.0,
     /** Tone turns off when band magnitude falls below floor by this factor. */
@@ -46,7 +46,28 @@ data class Detection(
     val magnitude: Double,
     /** Background noise floor the detector is currently tracking. */
     val noiseFloor: Double,
-)
+    /** Per-bin magnitudes for this block, aligned with [ToneDetector.binFrequencies]. */
+    val magnitudes: DoubleArray,
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is Detection) return false
+        return isTone == other.isTone &&
+            dominantHz == other.dominantHz &&
+            magnitude == other.magnitude &&
+            noiseFloor == other.noiseFloor &&
+            magnitudes.contentEquals(other.magnitudes)
+    }
+
+    override fun hashCode(): Int {
+        var result = isTone.hashCode()
+        result = 31 * result + dominantHz.hashCode()
+        result = 31 * result + magnitude.hashCode()
+        result = 31 * result + noiseFloor.hashCode()
+        result = 31 * result + magnitudes.contentHashCode()
+        return result
+    }
+}
 
 /**
  * Turns a stream of audio blocks into on/off tone events.
@@ -83,6 +104,10 @@ class ToneDetector(private val config: DetectorConfig) {
         bins = hz.map { Goertzel(it, config.sampleRate, config.blockSize) }
     }
 
+    /** Center frequency of each Goertzel bin, low to high. */
+    val binFrequencies: DoubleArray
+        get() = binHz.copyOf()
+
     /** Frequencies (Hz) to ignore, for example the measured vibration tone. */
     fun setNotches(frequencies: List<Double>) {
         notches = frequencies
@@ -101,11 +126,13 @@ class ToneDetector(private val config: DetectorConfig) {
     }
 
     fun process(block: FloatArray): Detection {
+        val mags = DoubleArray(bins.size)
         var peakMag = 0.0
         var peakIdx = -1
         for (i in bins.indices) {
             if (isNotched(binHz[i])) continue
             val m = bins[i].magnitude(block)
+            mags[i] = m
             if (m > peakMag) {
                 peakMag = m
                 peakIdx = i
@@ -148,19 +175,19 @@ class ToneDetector(private val config: DetectorConfig) {
             floor += config.floorAdapt * (peakMag - floor)
         }
 
-        val dominantHz = if (peakIdx >= 0) interpolatedHz(peakIdx, block) else config.centerHz
-        return Detection(active, dominantHz, peakMag, floor)
+        val dominantHz = if (peakIdx >= 0) interpolatedHz(peakIdx, mags) else config.centerHz
+        return Detection(active, dominantHz, peakMag, floor, mags)
     }
 
     /**
      * Quadratic interpolation around the peak bin for a finer frequency
      * estimate than the bin spacing alone, which the color feedback relies on.
      */
-    private fun interpolatedHz(peakIdx: Int, block: FloatArray): Double {
+    private fun interpolatedHz(peakIdx: Int, mags: DoubleArray): Double {
         if (peakIdx <= 0 || peakIdx >= bins.size - 1) return binHz[peakIdx]
-        val left = bins[peakIdx - 1].magnitude(block)
-        val center = bins[peakIdx].magnitude(block)
-        val right = bins[peakIdx + 1].magnitude(block)
+        val left = mags[peakIdx - 1]
+        val center = mags[peakIdx]
+        val right = mags[peakIdx + 1]
         val denom = left - 2 * center + right
         if (denom == 0.0) return binHz[peakIdx]
         val offset = 0.5 * (left - right) / denom

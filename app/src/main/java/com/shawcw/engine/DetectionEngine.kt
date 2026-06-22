@@ -2,6 +2,7 @@ package com.shawcw.engine
 
 import android.content.Context
 import com.shawcw.AppState
+import com.shawcw.SpectrumState
 import com.shawcw.ToneState
 import com.shawcw.audio.AudioCapture
 import com.shawcw.audio.AudioRecordCapture
@@ -70,12 +71,27 @@ class DetectionEngine(context: Context) {
     }
 
     private fun onBlock(block: FloatArray) {
-        val result = detector?.process(block) ?: return
+        val det = detector ?: return
+        val result = det.process(block)
 
         if (settings.hapticEnabled) haptic.setActive(result.isTone)
         if (settings.flashlightEnabled) torch.setActive(result.isTone)
 
-        AppState.setTone(ToneState(isTone = result.isTone, dominantHz = result.dominantHz))
+        // Level is the dominant bin relative to the noise floor, mapped onto
+        // 0..1 across the on/off threshold range so the meter reads naturally.
+        val ratio = if (result.noiseFloor > 0.0) result.magnitude / result.noiseFloor else 0.0
+        val level = ((ratio - 1.0) / 8.0).coerceIn(0.0, 1.0).toFloat()
+
+        AppState.setTone(
+            ToneState(isTone = result.isTone, dominantHz = result.dominantHz, level = level),
+        )
+        AppState.setSpectrum(
+            SpectrumState(
+                frequencies = det.binFrequencies,
+                magnitudes = result.magnitudes,
+                noiseFloor = result.noiseFloor,
+            ),
+        )
     }
 
     fun stop() {

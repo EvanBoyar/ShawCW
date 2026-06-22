@@ -1,64 +1,67 @@
 package com.shawcw.ui
 
 import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.shawcw.AppState
-import com.shawcw.ToneState
-import com.shawcw.feedback.FrequencyColor
+import com.shawcw.CalibrationState
+import com.shawcw.feedback.VibrationCalibrator
 import com.shawcw.service.ListeningService
-import com.shawcw.settings.Settings
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
     private val permissions = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
-    ) { /* state is reflected by the system; nothing to do here */ }
+    ) { /* the UI reads permission state directly when it needs to act */ }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        requestNeededPermissions()
+        enableEdgeToEdge()
+        requestStartupPermissions()
         setContent {
             ShawCWTheme {
-                Surface(modifier = Modifier.fillMaxSize()) {
-                    MainScreen(
-                        onListeningChange = { on ->
-                            AppState.updateSettings { it.copy(listening = on) }
-                            if (on) ListeningService.start(this) else ListeningService.stop(this)
+                Surface(modifier = Modifier) {
+                    ShawApp(
+                        onStartListening = {
+                            if (ensureMicPermission()) {
+                                AppState.updateSettings { it.copy(listening = true) }
+                                ListeningService.start(this)
+                                true
+                            } else {
+                                false
+                            }
                         },
+                        onStopListening = {
+                            AppState.updateSettings { it.copy(listening = false) }
+                            ListeningService.stop(this)
+                        },
+                        hasMicPermission = { hasMicPermission() },
+                        requestMic = { permissions.launch(arrayOf(Manifest.permission.RECORD_AUDIO)) },
                     )
                 }
             }
         }
     }
 
-    private fun requestNeededPermissions() {
+    private fun requestStartupPermissions() {
         val needed = buildList {
             add(Manifest.permission.RECORD_AUDIO)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -67,71 +70,89 @@ class MainActivity : ComponentActivity() {
         }.toTypedArray()
         permissions.launch(needed)
     }
-}
 
-@Composable
-private fun MainScreen(onListeningChange: (Boolean) -> Unit) {
-    val settings by AppState.settings.collectAsState()
-    val tone by AppState.tone.collectAsState()
+    private fun hasMicPermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Text(text = "ShawCW", fontSize = 28.sp)
-
-        ColorSplotch(settings = settings, tone = tone)
-
-        ToggleRow("Listening", settings.listening, onListeningChange)
-        ToggleRow("Haptic", settings.hapticEnabled) { on ->
-            AppState.updateSettings { it.copy(hapticEnabled = on) }
-        }
-        ToggleRow("Flashlight", settings.flashlightEnabled) { on ->
-            AppState.updateSettings { it.copy(flashlightEnabled = on) }
-        }
-        ToggleRow("Color", settings.colorEnabled) { on ->
-            AppState.updateSettings { it.copy(colorEnabled = on) }
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = if (tone.isTone) "Tone at ${tone.dominantHz.toInt()} Hz" else "No tone",
-        )
+    private fun ensureMicPermission(): Boolean {
+        if (hasMicPermission()) return true
+        permissions.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
+        return false
     }
 }
 
-@Composable
-private fun ColorSplotch(settings: Settings, tone: ToneState) {
-    val color = if (settings.colorEnabled && tone.isTone) {
-        val hue = FrequencyColor.hueFor(
-            tone.dominantHz,
-            settings.lowHz,
-            settings.centerHz,
-            settings.highHz,
-        )
-        Color.hsv(hue, 0.85f, 1.0f)
-    } else {
-        Color(0xFF24304F)
-    }
-    Spacer(
-        modifier = Modifier
-            .size(180.dp)
-            .clip(CircleShape)
-            .background(color),
-    )
-}
+private enum class Screen { Home, Settings }
 
 @Composable
-private fun ToggleRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(text = label, fontSize = 18.sp)
-        Switch(checked = checked, onCheckedChange = onChange)
+private fun ShawApp(
+    onStartListening: () -> Boolean,
+    onStopListening: () -> Unit,
+    hasMicPermission: () -> Boolean,
+    requestMic: () -> Unit,
+) {
+    val settings by AppState.settings.collectAsStateWithLifecycle()
+    val tone by AppState.tone.collectAsStateWithLifecycle()
+    val spectrum by AppState.spectrum.collectAsStateWithLifecycle()
+    val calibration by AppState.calibration.collectAsStateWithLifecycle()
+
+    var screen by rememberSaveable { mutableStateOf(Screen.Home) }
+
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val calibrator = remember { VibrationCalibrator(context) }
+
+    when (screen) {
+        Screen.Home -> HomeScreen(
+            settings = settings,
+            tone = tone,
+            spectrum = spectrum,
+            onToggleListening = { wantOn ->
+                if (wantOn) onStartListening() else onStopListening()
+            },
+            onToggleHaptic = { AppState.updateSettings { s -> s.copy(hapticEnabled = it) } },
+            onToggleFlashlight = { AppState.updateSettings { s -> s.copy(flashlightEnabled = it) } },
+            onToggleColor = { AppState.updateSettings { s -> s.copy(colorEnabled = it) } },
+            onOpenSettings = { screen = Screen.Settings },
+        )
+
+        Screen.Settings -> SettingsScreen(
+            settings = settings,
+            calibration = calibration,
+            onSetLow = { v -> AppState.updateSettings { it.copy(lowHz = v.coerceAtMost(it.centerHz)) } },
+            onSetCenter = { v ->
+                AppState.updateSettings { it.copy(centerHz = v.coerceIn(it.lowHz, it.highHz)) }
+            },
+            onSetHigh = { v -> AppState.updateSettings { it.copy(highHz = v.coerceAtLeast(it.centerHz)) } },
+            onSetPalette = { p -> AppState.updateSettings { it.copy(colorPalette = p) } },
+            onToggleHaptic = { AppState.updateSettings { s -> s.copy(hapticEnabled = it) } },
+            onToggleFlashlight = { AppState.updateSettings { s -> s.copy(flashlightEnabled = it) } },
+            onToggleColor = { AppState.updateSettings { s -> s.copy(colorEnabled = it) } },
+            onCalibrate = {
+                if (!hasMicPermission()) {
+                    requestMic()
+                    AppState.setCalibration(CalibrationState.Failed("Microphone permission needed"))
+                } else {
+                    AppState.setCalibration(CalibrationState.Running)
+                    scope.launch {
+                        runCatching { calibrator.calibrate() }
+                            .onSuccess { freqs ->
+                                AppState.updateSettings { it.copy(vibrationNotchHz = freqs) }
+                                AppState.setCalibration(CalibrationState.Done(freqs))
+                            }
+                            .onFailure {
+                                AppState.setCalibration(
+                                    CalibrationState.Failed("Calibration failed, try again"),
+                                )
+                            }
+                    }
+                }
+            },
+            onClearNotches = {
+                AppState.updateSettings { it.copy(vibrationNotchHz = emptyList()) }
+                AppState.setCalibration(CalibrationState.Idle)
+            },
+            onBack = { screen = Screen.Home },
+        )
     }
 }
