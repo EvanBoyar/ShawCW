@@ -63,6 +63,12 @@ The APK lands in `app/build/outputs/apk/debug/`.
 If Shaw CW is useful to you, you can support its development at [buymeacoffee.com/elbow](https://buymeacoffee.com/elbow).
 You can also lend the *other* kind of support by logging an issue or submitting a PR.
 
+## How this got made
+
+For many years I've been interested in assistive devices for people with desires that conflict with their bodies. When I was a kid and learned the partially-true story about Beethoven dealing with his deafness by "listening" to music through the tactile sensation of vibrations, I wondered if a device could be built that transduced vibrations in the air into lower-frequency vibrations that could be felt on the skin. With the advent of the smartphone in '07, I realized that the vibration motor could be used to at least help find the beat of a song or its main tones. Even back then I realized there's nothing special about Morse that sets it apart from music, so it could even more easily work for that. My idea would have to wait until coding agents made it easy enough to whip something like this up in an evening for me to get the spare time to make it!
+
+This app is named after the inventor [William E. Shaw](https://www.britishdeafnews.co.uk/the-life-of-william-shaw/), a deaf inventor who created scores of devices for the hard of hearing. At the time of writing he doesn't appear to have a Wikipedia article so if you're reading this, get on it!
+
 ## License
 
 Copyright 2026 Evan Boyar
