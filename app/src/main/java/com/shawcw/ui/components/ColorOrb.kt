@@ -1,7 +1,6 @@
 package com.shawcw.ui.components
 
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.size
@@ -13,10 +12,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
 /**
- * The central feedback element. Idle it is a dim ring; when a tone is present
- * it fills with [toneColor], brightens and swells slightly. Color and scale are
- * animated so the response reads as a smooth pulse rather than a hard flicker,
- * which matters when an operator is sending fast.
+ * The central feedback element. Idle it is a dim disc; when a tone is present it
+ * fills with [toneColor], brightens and swells.
+ *
+ * The on/off envelope is intentionally instant, not eased, so the orb tracks
+ * fast CW exactly like the flash rather than smearing dits together. Only the
+ * lit hue is crossfaded, and only briefly, so drifting off frequency shifts
+ * color smoothly without lagging the keying.
  */
 @Composable
 fun ColorOrb(
@@ -26,21 +28,16 @@ fun ColorOrb(
 ) {
     val idle = Color(0xFF18203B)
 
-    val color by animateColorAsState(
-        targetValue = if (active) toneColor else idle,
-        animationSpec = tween(durationMillis = 90),
-        label = "orbColor",
+    val litColor by animateColorAsState(
+        targetValue = toneColor,
+        animationSpec = tween(durationMillis = 40),
+        label = "orbHue",
     )
-    val scale by animateFloatAsState(
-        targetValue = if (active) 1f else 0.86f,
-        animationSpec = tween(durationMillis = 120),
-        label = "orbScale",
-    )
-    val glow by animateFloatAsState(
-        targetValue = if (active) 0.55f else 0.0f,
-        animationSpec = tween(durationMillis = 120),
-        label = "orbGlow",
-    )
+
+    // Snap the envelope to the keying; the flash does the same.
+    val color = if (active) litColor else idle
+    val scale = if (active) 1f else 0.86f
+    val glow = if (active) 0.55f else 0f
 
     Canvas(modifier = modifier.size(220.dp)) {
         val center = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height / 2f)

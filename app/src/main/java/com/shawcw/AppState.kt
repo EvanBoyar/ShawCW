@@ -44,6 +44,11 @@ object AppState {
     private val _tone = MutableStateFlow(ToneState())
     val tone: StateFlow<ToneState> = _tone.asStateFlow()
 
+    // On/off only, pushed at the full hop rate so the color and flash track fast
+    // CW. It is a bare Boolean, so the flow emits only on edges and stays cheap.
+    private val _toneActive = MutableStateFlow(false)
+    val toneActive: StateFlow<Boolean> = _toneActive.asStateFlow()
+
     private val _spectrum = MutableStateFlow(SpectrumState())
     val spectrum: StateFlow<SpectrumState> = _spectrum.asStateFlow()
 
@@ -61,6 +66,10 @@ object AppState {
 
     fun setTone(state: ToneState) {
         _tone.value = state
+    }
+
+    fun setToneActive(active: Boolean) {
+        _toneActive.value = active
     }
 
     fun setSpectrum(state: SpectrumState) {

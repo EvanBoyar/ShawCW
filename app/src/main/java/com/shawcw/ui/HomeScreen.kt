@@ -39,6 +39,7 @@ import com.shawcw.ui.components.SpectrumView
 fun HomeScreen(
     settings: Settings,
     tone: ToneState,
+    toneActive: Boolean,
     spectrum: SpectrumState,
     onToggleListening: (Boolean) -> Unit,
     onToggleHaptic: (Boolean) -> Unit,
@@ -83,7 +84,7 @@ fun HomeScreen(
                 contentAlignment = Alignment.Center,
             ) {
                 ColorOrb(
-                    active = tone.isTone && settings.colorEnabled,
+                    active = toneActive && settings.colorEnabled,
                     toneColor = if (settings.colorEnabled) activeColor else MaterialTheme.colorScheme.primary,
                 )
             }

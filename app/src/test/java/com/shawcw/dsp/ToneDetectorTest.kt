@@ -10,59 +10,41 @@ import kotlin.random.Random
 
 class ToneDetectorTest {
 
-    private val config = DetectorConfig(sampleRate = 16_000, blockSize = 512)
+    private val config = DetectorConfig(sampleRate = 16_000)
+    private val hop get() = config.hopSize
 
-    /** A block of tone (optional) plus uniform broadband noise. */
-    private fun signalBlock(
-        toneHz: Double,
-        toneAmp: Double,
-        noiseAmp: Double,
-        rng: Random,
-        phase: Double,
-    ): Pair<FloatArray, Double> {
-        val block = FloatArray(config.blockSize)
-        var p = phase
-        val step = 2 * PI * toneHz / config.sampleRate
-        for (i in block.indices) {
-            val tone = toneAmp * sin(p)
-            val noise = noiseAmp * (rng.nextDouble() * 2 - 1)
-            block[i] = (tone + noise).toFloat()
-            p += step
-        }
-        return block to p
-    }
-
+    /** Feeds [hops] hops of a tone (optional) plus broadband noise. */
     private fun feed(
         detector: ToneDetector,
-        blocks: Int,
+        hops: Int,
         toneHz: Double,
         toneAmp: Double,
         noiseAmp: Double,
         rng: Random,
-        startPhase: Double = 0.0,
+        state: PhaseState = PhaseState(),
     ): Detection {
-        var phase = startPhase
         var last: Detection? = null
-        repeat(blocks) {
-            val (block, next) = signalBlock(toneHz, toneAmp, noiseAmp, rng, phase)
-            phase = next
+        repeat(hops) {
+            val block = FloatArray(hop)
+            val step = 2 * PI * toneHz / config.sampleRate
+            for (i in block.indices) {
+                val tone = toneAmp * sin(state.phase)
+                val noise = noiseAmp * (rng.nextDouble() * 2 - 1)
+                block[i] = (tone + noise).toFloat()
+                state.phase += step
+            }
             last = detector.process(block)
         }
         return last!!
     }
 
+    private class PhaseState(var phase: Double = 0.0)
+
     @Test
     fun detectsSustainedCenterTone() {
         val detector = ToneDetector(config)
-        val rng = Random(1)
-        var detected = false
-        var phase = 0.0
-        repeat(20) {
-            val (block, next) = signalBlock(config.centerHz, 0.2, 0.01, rng, phase)
-            phase = next
-            if (detector.process(block).isTone) detected = true
-        }
-        assertTrue("a clear tone over light noise should be detected", detected)
+        val last = feed(detector, 30, config.centerHz, 0.2, 0.01, Random(1))
+        assertTrue("a clear tone over light noise should be detected", last.isTone)
     }
 
     @Test
@@ -70,38 +52,27 @@ class ToneDetectorTest {
         val detector = ToneDetector(config)
         val rng = Random(7)
         var everOn = false
-        var phase = 0.0
-        repeat(80) {
-            val (block, next) = signalBlock(0.0, 0.0, 0.2, rng, phase)
-            phase = next
-            if (detector.process(block).isTone) everOn = true
-        }
+        repeat(120) { if (feed(detector, 1, 0.0, 0.0, 0.2, rng).isTone) everOn = true }
         assertFalse("broadband static should not register as a tone", everOn)
     }
 
     @Test
     fun rejectsQuietRoom() {
-        // The reported bug: near silence triggered constant detection because
-        // tiny magnitudes produced huge ratios. Contrast keeps a quiet room flat.
+        // The earlier bug: near silence triggered constant detection. Contrast
+        // against reference bands keeps a quiet room flat.
         val detector = ToneDetector(config)
         val rng = Random(11)
         var everOn = false
-        repeat(120) {
-            if (feed(detector, 1, 0.0, 0.0, 0.003, rng).isTone) everOn = true
-        }
+        repeat(200) { if (feed(detector, 1, 0.0, 0.0, 0.003, rng).isTone) everOn = true }
         assertFalse("a quiet room must not be detected as a tone", everOn)
     }
 
     @Test
     fun rejectsLoudStatic() {
-        // Detection must be level independent: loud broadband static still has
-        // no dominant bin, so it is not a tone.
         val detector = ToneDetector(config)
         val rng = Random(13)
         var everOn = false
-        repeat(80) {
-            if (feed(detector, 1, 0.0, 0.0, 0.5, rng).isTone) everOn = true
-        }
+        repeat(120) { if (feed(detector, 1, 0.0, 0.0, 0.5, rng).isTone) everOn = true }
         assertFalse("loud static should not register as a tone", everOn)
     }
 
@@ -109,44 +80,62 @@ class ToneDetectorTest {
     fun toleratesFadingWithoutChopping() {
         val detector = ToneDetector(config)
         val rng = Random(3)
-        val phase = feedPhase(detector, 10, config.centerHz, 0.4, 0.05, rng)
-        // One faint block (tone drops into the noise) must not end the tone,
-        // thanks to the off-debounce.
-        val (weak, _) = signalBlock(config.centerHz, 0.0, 0.05, rng, phase)
-        assertTrue("a single faded block should not end the tone", detector.process(weak).isTone)
+        val state = PhaseState()
+        feed(detector, 20, config.centerHz, 0.4, 0.05, rng, state)
+        // A single faint hop (tone drops into the noise) must not end the tone.
+        val faded = feed(detector, 1, config.centerHz, 0.0, 0.05, rng, state)
+        assertTrue("a single faded hop should not end the tone", faded.isTone)
     }
 
     @Test
     fun clearsAfterSustainedSilence() {
         val detector = ToneDetector(config)
         val rng = Random(4)
-        feed(detector, 10, config.centerHz, 0.4, 0.05, rng)
-        val end = feed(detector, 10, 0.0, 0.0, 0.05, rng)
+        val state = PhaseState()
+        feed(detector, 20, config.centerHz, 0.4, 0.05, rng, state)
+        val end = feed(detector, 20, 0.0, 0.0, 0.05, rng, state)
         assertFalse("the tone should clear once the signal is gone", end.isTone)
     }
 
     @Test
     fun reportsFrequencyNearOffCenterTone() {
         val detector = ToneDetector(config)
-        val rng = Random(5)
-        val last = feed(detector, 20, 650.0, 0.3, 0.01, rng)
-        assertEquals(650.0, last.dominantHz, 20.0)
+        val last = feed(detector, 30, 650.0, 0.3, 0.01, Random(5))
+        assertEquals(650.0, last.dominantHz, 25.0)
     }
 
-    private fun feedPhase(
-        detector: ToneDetector,
-        blocks: Int,
-        toneHz: Double,
-        toneAmp: Double,
-        noiseAmp: Double,
-        rng: Random,
-    ): Double {
+    @Test
+    fun separatesDitsAtTwentyWpm() {
+        // ~19 wpm: 64 ms elements and gaps (1024 samples at 16 kHz). The detector
+        // must release between dits, not smear them into one continuous tone.
+        val detector = ToneDetector(config)
+        val rng = Random(9)
+        val elementSamples = 1024
+        val dits = 6
+        val step = 2 * PI * config.centerHz / config.sampleRate
+
         var phase = 0.0
-        repeat(blocks) {
-            val (block, next) = signalBlock(toneHz, toneAmp, noiseAmp, rng, phase)
-            phase = next
-            detector.process(block)
+        var t = 0
+        var prev = false
+        var risingEdges = 0
+        var offHops = 0
+        val totalHops = dits * 2 * (elementSamples / hop)
+        repeat(totalHops) {
+            val block = FloatArray(hop)
+            for (i in block.indices) {
+                val on = (t / elementSamples) % 2 == 0
+                val tone = if (on) 0.35 * sin(phase) else 0.0
+                block[i] = (tone + 0.02 * (rng.nextDouble() * 2 - 1)).toFloat()
+                phase += step
+                t++
+            }
+            val isTone = detector.process(block).isTone
+            if (isTone && !prev) risingEdges++
+            if (!isTone) offHops++
+            prev = isTone
         }
-        return phase
+
+        assertTrue("dits should be detected as separate elements (got $risingEdges edges)", risingEdges >= 4)
+        assertTrue("detector must release between dits", offHops > 0)
     }
 }

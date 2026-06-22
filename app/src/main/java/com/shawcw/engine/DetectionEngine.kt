@@ -13,9 +13,13 @@ import com.shawcw.feedback.TorchFeedback
 import com.shawcw.settings.Settings
 
 /**
- * Wires capture to detection to feedback. The capture thread calls [onBlock]
- * for every audio block; the engine runs the detector and fans the result out
- * to the enabled outputs and to [AppState] for the UI.
+ * Wires capture to detection to feedback. The capture thread calls [onHop] for
+ * every audio hop; the engine runs the detector and fans the result out to the
+ * enabled outputs and to [AppState] for the UI.
+ *
+ * Feedback (haptic, torch) runs at the full hop rate so it tracks fast CW; the
+ * UI flows are decimated to roughly 30 per second so 125 hops a second do not
+ * thrash Compose.
  */
 class DetectionEngine(context: Context) {
 
@@ -26,25 +30,16 @@ class DetectionEngine(context: Context) {
     private var capture: AudioCapture? = null
     private var detector: ToneDetector? = null
     private var settings: Settings = Settings()
+    private var uiTick = 0
 
     fun start(initial: Settings) {
         if (capture != null) return
         settings = initial
 
-        val cap = AudioRecordCapture()
-        val det = ToneDetector(
-            DetectorConfig(
-                sampleRate = cap.sampleRate,
-                blockSize = cap.blockSize,
-                lowHz = initial.lowHz,
-                centerHz = initial.centerHz,
-                highHz = initial.highHz,
-            ),
-        ).also { it.setNotches(initial.vibrationNotchHz) }
-
-        capture = cap
-        detector = det
-        cap.start(::onBlock)
+        val config = configFor(initial)
+        capture = AudioRecordCapture(sampleRate = config.sampleRate, blockSize = config.hopSize)
+        detector = ToneDetector(config).also { it.setNotches(initial.vibrationNotchHz) }
+        capture?.start(::onHop)
     }
 
     /** Applies changed settings without tearing down capture where possible. */
@@ -57,25 +52,28 @@ class DetectionEngine(context: Context) {
             old.centerHz != newSettings.centerHz ||
             old.highHz != newSettings.highHz
         if (bandChanged) {
-            detector = ToneDetector(
-                DetectorConfig(
-                    sampleRate = capture?.sampleRate ?: 16_000,
-                    blockSize = capture?.blockSize ?: 512,
-                    lowHz = newSettings.lowHz,
-                    centerHz = newSettings.centerHz,
-                    highHz = newSettings.highHz,
-                ),
-            )
+            detector = ToneDetector(configFor(newSettings))
         }
         detector?.setNotches(newSettings.vibrationNotchHz)
     }
 
-    private fun onBlock(block: FloatArray) {
+    private fun configFor(s: Settings): DetectorConfig =
+        DetectorConfig(lowHz = s.lowHz, centerHz = s.centerHz, highHz = s.highHz)
+
+    private fun onHop(hop: FloatArray) {
         val det = detector ?: return
-        val result = det.process(block)
+        val result = det.process(hop)
 
         if (settings.hapticEnabled) haptic.setActive(result.isTone)
         if (settings.flashlightEnabled) torch.setActive(result.isTone)
+
+        // On/off at the full hop rate so the color orb is as crisp as the flash.
+        // The flow dedupes, so this only emits on dit edges.
+        AppState.setToneActive(result.isTone)
+
+        // Decimate the heavier UI updates; the signals above already ran at the
+        // full hop rate.
+        if (uiTick++ % UI_DECIMATION != 0) return
 
         // Level is the dominant bin relative to the noise floor, mapped onto
         // 0..1 across the on/off threshold range so the meter reads naturally.
@@ -100,6 +98,7 @@ class DetectionEngine(context: Context) {
         detector = null
         haptic.setActive(false)
         torch.setActive(false)
+        AppState.setToneActive(false)
         AppState.setTone(ToneState())
     }
 
@@ -107,5 +106,9 @@ class DetectionEngine(context: Context) {
         stop()
         haptic.release()
         torch.release()
+    }
+
+    private companion object {
+        const val UI_DECIMATION = 4
     }
 }

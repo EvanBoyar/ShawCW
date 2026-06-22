@@ -93,6 +93,7 @@ private fun ShawApp(
 ) {
     val settings by AppState.settings.collectAsStateWithLifecycle()
     val tone by AppState.tone.collectAsStateWithLifecycle()
+    val toneActive by AppState.toneActive.collectAsStateWithLifecycle()
     val spectrum by AppState.spectrum.collectAsStateWithLifecycle()
     val calibration by AppState.calibration.collectAsStateWithLifecycle()
 
@@ -106,6 +107,7 @@ private fun ShawApp(
         Screen.Home -> HomeScreen(
             settings = settings,
             tone = tone,
+            toneActive = toneActive,
             spectrum = spectrum,
             onToggleListening = { wantOn ->
                 if (wantOn) onStartListening() else onStopListening()
