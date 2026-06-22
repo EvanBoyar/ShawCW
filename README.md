@@ -60,4 +60,11 @@ The APK lands in `app/build/outputs/apk/debug/`.
 
 ## Support
 
-If Shaw CW is useful to you, you can support its development at [buymeacoffee.com/elbow](https://buymeacoffee.com/elbow). Thank you.
+If Shaw CW is useful to you, you can support its development at [buymeacoffee.com/elbow](https://buymeacoffee.com/elbow). 
+You can also lend the *other* kind of support by logging an issue or submitting a PR.
+
+## License
+
+Copyright 2026 Evan Boyar
+
+THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
