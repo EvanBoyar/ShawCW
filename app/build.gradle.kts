@@ -1,8 +1,25 @@
+import org.gradle.api.DefaultTask
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.tasks.InputFile
+import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.TaskAction
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
+
+// Release signing values come from the environment (CI secrets) or, for local
+// release builds, from keystore.properties (gitignored, never committed).
+val keystoreProperties = Properties().apply {
+    val f = rootProject.file("keystore.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+fun signingValue(name: String): String? =
+    (System.getenv(name) ?: keystoreProperties.getProperty(name))?.takeIf { it.isNotBlank() }
 
 android {
     namespace = "com.shawcw"
@@ -18,6 +35,18 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("release") {
+            val storePath = signingValue("KEYSTORE_FILE")
+            if (storePath != null) {
+                storeFile = file(storePath)
+                storePassword = signingValue("KEYSTORE_PASSWORD")
+                keyAlias = signingValue("KEY_ALIAS")
+                keyPassword = signingValue("KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -25,6 +54,11 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+            // Only attach the release signing config when key material is
+            // present; contributors without the key can still build unsigned.
+            if (signingConfigs.getByName("release").storeFile != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 
@@ -40,21 +74,38 @@ android {
     buildFeatures {
         compose = true
     }
+}
 
-    // Bundle the project README into the app so the in-app help screen renders
-    // the same document that GitHub shows, without fetching anything at runtime.
-    sourceSets.named("main") {
-        assets.srcDir(layout.buildDirectory.dir("generated/readmeAssets"))
+// Bundle the project README into the app so the in-app help screen renders the
+// same document GitHub shows, without fetching anything at runtime. Registering
+// the generated assets through the variant sources API lets AGP wire every
+// consumer (asset merge, lint, packaging) to the copy task automatically.
+abstract class CopyReadmeTask : DefaultTask() {
+    @get:InputFile
+    abstract val readme: RegularFileProperty
+
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun copy() {
+        val dir = outputDir.get().asFile
+        dir.mkdirs()
+        readme.get().asFile.copyTo(dir.resolve("README.md"), overwrite = true)
     }
 }
 
-val copyReadmeToAssets by tasks.registering(Copy::class) {
-    from(rootProject.file("README.md"))
-    into(layout.buildDirectory.dir("generated/readmeAssets"))
+val copyReadmeToAssets = tasks.register<CopyReadmeTask>("copyReadmeToAssets") {
+    readme.set(rootProject.file("README.md"))
 }
 
-tasks.matching { it.name.matches(Regex("merge.*Assets")) }.configureEach {
-    dependsOn(copyReadmeToAssets)
+androidComponents {
+    onVariants { variant ->
+        variant.sources.assets?.addGeneratedSourceDirectory(
+            copyReadmeToAssets,
+            CopyReadmeTask::outputDir,
+        )
+    }
 }
 
 dependencies {
