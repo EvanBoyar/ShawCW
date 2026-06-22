@@ -1,6 +1,8 @@
 package com.shawcw.ui
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +23,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Vibration
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -29,6 +32,11 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -43,8 +51,13 @@ import com.shawcw.settings.Settings
 import com.shawcw.ui.components.ColorOrb
 import com.shawcw.ui.components.ListenButton
 import com.shawcw.ui.components.SpectrumView
+import kotlinx.coroutines.delay
 
 private const val DONATE_URL = "https://buymeacoffee.com/elbow"
+
+// Hold the last detected frequency on screen briefly after the tone stops, so a
+// single dit does not leave the readout flickering between the value and "Listening".
+private const val FREQUENCY_HOLD_MS = 1500L
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -113,6 +126,7 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(20.dp),
@@ -165,17 +179,31 @@ fun HomeScreen(
 
 @Composable
 private fun ToneReadout(tone: ToneState, listening: Boolean) {
+    // Latch the most recent frequency and keep it on screen for a moment after the
+    // tone drops, so the readout stays steady through the gaps between elements.
+    var heldHz by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(listening, tone.isTone, tone.dominantHz) {
+        when {
+            !listening -> heldHz = null
+            tone.isTone -> heldHz = tone.dominantHz.toInt()
+            heldHz != null -> {
+                delay(FREQUENCY_HOLD_MS)
+                heldHz = null
+            }
+        }
+    }
+
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         val headline = when {
             !listening -> "Idle"
-            tone.isTone -> "${tone.dominantHz.toInt()} Hz"
+            heldHz != null -> "$heldHz Hz"
             else -> "Listening"
         }
         Text(
             text = headline,
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.SemiBold,
-            color = if (tone.isTone) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground,
+            color = if (heldHz != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground,
         )
         Text(
             text = if (listening) "Tap the button below to stop" else "Tap the button below to start",
@@ -214,6 +242,13 @@ private fun OutputChips(
     onToggleFlashlight: (Boolean) -> Unit,
     onToggleColor: (Boolean) -> Unit,
 ) {
+    // Selected chips carry the teal accent; unselected ones stay grey, matching the
+    // top bar convention that colour means on and grey means off.
+    val chipColors = FilterChipDefaults.filterChipColors(
+        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+    )
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
@@ -223,18 +258,21 @@ private fun OutputChips(
             onClick = { onToggleHaptic(!settings.hapticEnabled) },
             label = { Text("Haptic") },
             leadingIcon = { Icon(Icons.Filled.Vibration, contentDescription = null) },
+            colors = chipColors,
         )
         FilterChip(
             selected = settings.flashlightEnabled,
             onClick = { onToggleFlashlight(!settings.flashlightEnabled) },
             label = { Text("Flash") },
             leadingIcon = { Icon(Icons.Filled.Bolt, contentDescription = null) },
+            colors = chipColors,
         )
         FilterChip(
             selected = settings.colorEnabled,
             onClick = { onToggleColor(!settings.colorEnabled) },
             label = { Text("Color") },
             leadingIcon = { Icon(Icons.Filled.Palette, contentDescription = null) },
+            colors = chipColors,
         )
     }
 }
