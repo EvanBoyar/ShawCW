@@ -77,6 +77,35 @@ class ToneDetectorTest {
     }
 
     @Test
+    fun rejectsFilteredInBandStatic() {
+        // The real-world failure: a CW receiver filters its audio to the passband,
+        // so hiss is concentrated inside the band and absent outside. Estimating
+        // noise from inside the band must still reject it: many in-band bins are
+        // lit, so no single bin dominates.
+        val detector = ToneDetector(config)
+        val rng = Random(21)
+        // Band-limited noise: many random-phase components spread across the band.
+        val components = (0 until 14).map { i ->
+            val f = config.lowHz + (config.highHz - config.lowHz) * i / 13.0
+            Triple(f, 0.05 + 0.03 * rng.nextDouble(), rng.nextDouble() * 2 * PI)
+        }
+        var phase0 = 0L
+        var everOn = false
+        repeat(150) {
+            val block = FloatArray(hop)
+            for (j in block.indices) {
+                val t = (phase0 + j).toDouble() / config.sampleRate
+                var v = 0.0
+                for ((f, a, ph) in components) v += a * sin(2 * PI * f * t + ph)
+                block[j] = v.toFloat()
+            }
+            phase0 += hop
+            if (detector.process(block).isTone) everOn = true
+        }
+        assertFalse("filtered in-band static must not register as a tone", everOn)
+    }
+
+    @Test
     fun toleratesFadingWithoutChopping() {
         val detector = ToneDetector(config)
         val rng = Random(3)

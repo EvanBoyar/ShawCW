@@ -1,7 +1,8 @@
 package com.shawcw.dsp
 
 import kotlin.math.abs
-import kotlin.math.max
+import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 /**
  * Configuration for [ToneDetector]. Frequencies come straight from the user's
@@ -23,21 +24,21 @@ data class DetectorConfig(
     val lowHz: Double = 500.0,
     val centerHz: Double = 600.0,
     val highHz: Double = 700.0,
-    /** Coarse in-band bins on the short window, used to find tone energy. */
-    val bandBins: Int = 8,
-    /** Bins placed outside the band to estimate the broadband noise. */
-    val referenceBins: Int = 8,
+    /** In-band bins on the short window, for the peak and the in-band noise floor. */
+    val detectionBins: Int = 16,
     /** Fine in-band bins on the long window, for the frequency estimate and spectrum. */
     val spectrumBins: Int = 24,
     /**
      * Tone turns on when the strongest in-band bin is at least this many times
-     * the median reference bin. A CW tone lifts one in-band bin without touching
-     * the reference bands; broadband noise and static lift both together, so
-     * their ratio stays near 1 regardless of volume.
+     * the median of the rest of the band (the bins away from the peak). A CW
+     * tone is one sharp bin above an otherwise flat band; broadband or filtered
+     * static fills the whole band, so its peak barely exceeds the rest. Because
+     * the reference is inside the band, this holds whatever the receiver's audio
+     * filter does to the noise shape, and at any volume.
      */
-    val onContrast: Double = 4.0,
+    val onContrast: Double = 5.0,
     /** Tone turns off when contrast drops below this, giving hysteresis. */
-    val offContrast: Double = 2.5,
+    val offContrast: Double = 3.0,
     /** Consecutive hops above the on threshold before reporting a tone. */
     val minOnHops: Int = 2,
     /** Consecutive hops below the off threshold before clearing a tone. */
@@ -54,8 +55,7 @@ data class DetectorConfig(
     init {
         require(lowHz < highHz) { "lowHz must be below highHz" }
         require(centerHz in lowHz..highHz) { "centerHz must sit within the band" }
-        require(bandBins >= 1) { "need at least one band bin" }
-        require(referenceBins >= 2) { "need at least two reference bins" }
+        require(detectionBins >= 5) { "need enough detection bins to estimate an in-band floor" }
         require(spectrumBins >= 3) { "need at least three spectrum bins" }
         require(hopSize in 1..windowSize) { "hopSize must be within 1..windowSize" }
         require(offContrast < onContrast) { "offContrast must be below onContrast for hysteresis" }
@@ -70,7 +70,7 @@ data class Detection(
     val dominantHz: Double,
     /** Magnitude of the strongest in-band bin (timing window). */
     val magnitude: Double,
-    /** Median reference-band magnitude, the noise reference for this window. */
+    /** In-band noise floor: median of the band away from the peak. */
     val noiseFloor: Double,
     /** Fine in-band magnitudes for the spectrum, aligned with [ToneDetector.binFrequencies]. */
     val magnitudes: DoubleArray,
@@ -98,30 +98,36 @@ data class Detection(
 /**
  * Turns a stream of audio hops into on/off tone events.
  *
- * On/off keys on spectral contrast over a short window: how far the strongest
- * in-band bin stands above the median of reference bins placed just outside the
- * band. That ratio is level independent, so a quiet room and loud static both
- * read as no tone while a real CW signal reads as a tone at any volume. The
- * short window releases quickly, keeping fast dits separate. A second, longer
- * window estimates the dominant frequency and feeds the spectrum, where fine
- * frequency resolution matters more than speed.
+ * On/off keys on in-band spectral contrast over a short window: how far the
+ * strongest bin stands above the median of the rest of the band. A real CW tone
+ * is a single sharp peak; a quiet room, loud static, and receiver-filtered hiss
+ * all fill the band evenly, so their peak barely clears the rest and they read
+ * as no tone. Estimating noise inside the band makes this independent of both
+ * volume and the receiver's audio passband shape. The short window releases
+ * quickly, keeping fast dits separate. A second, longer window estimates the
+ * dominant frequency and feeds the spectrum, where resolution beats speed.
  *
  * Frequencies inside a notch (see [setNotches]) are ignored, which is how the
  * phone's own vibration signature is kept from self triggering the detector.
  */
 class ToneDetector(private val config: DetectorConfig) {
 
-    // Timing path: short window.
+    // Timing path: short window gives the instantaneous peak in-band energy.
     private val shortWindow = FloatArray(config.windowSize)
     private val bandHz: DoubleArray
     private val bandGoertzels: List<Goertzel>
-    private val referenceHz: DoubleArray
-    private val referenceGoertzels: List<Goertzel>
 
-    // Frequency and spectrum path: long window.
+    // Frequency, spectrum, and the noise floor: long window, for resolution.
     private val freqWindow = FloatArray(config.freqWindowSize)
     private val fineHz: DoubleArray
     private val fineGoertzels: List<Goertzel>
+    /** Fine bins within this index distance of the peak are part of its main lobe. */
+    private val guardBins: Int
+
+    // Noise magnitude scales as 1/sqrt(window), so the short-window peak and the
+    // long-window floor are on different scales for noise. This puts the floor on
+    // the short window's scale before they are compared.
+    private val floorScale: Double = sqrt(config.freqWindowSize.toDouble() / config.windowSize)
 
     private var notches: List<Double> = emptyList()
     private var active = false
@@ -129,14 +135,17 @@ class ToneDetector(private val config: DetectorConfig) {
     private var offCount = 0
 
     init {
-        bandHz = spread(config.lowHz, config.highHz, config.bandBins)
+        bandHz = spread(config.lowHz, config.highHz, config.detectionBins)
         bandGoertzels = bandHz.map { Goertzel(it, config.sampleRate, config.windowSize) }
-
-        referenceHz = referenceFrequencies()
-        referenceGoertzels = referenceHz.map { Goertzel(it, config.sampleRate, config.windowSize) }
 
         fineHz = spread(config.lowHz, config.highHz, config.spectrumBins)
         fineGoertzels = fineHz.map { Goertzel(it, config.sampleRate, config.freqWindowSize) }
+
+        // The long window's first-null width, in fine bins, is how far the tone
+        // leaks; the noise floor is taken from beyond it.
+        val lobeHz = config.sampleRate.toDouble() / config.freqWindowSize
+        val binSpacingHz = (config.highHz - config.lowHz) / (config.spectrumBins - 1)
+        guardBins = (lobeHz / binSpacingHz).roundToInt().coerceIn(1, config.spectrumBins / 3)
     }
 
     /** Center frequency of each fine spectrum bin, low to high. */
@@ -169,15 +178,36 @@ class ToneDetector(private val config: DetectorConfig) {
         slideIn(shortWindow, hop)
         slideIn(freqWindow, hop)
 
-        // Timing path: peak in-band energy versus the reference noise.
+        // Fast path: instantaneous peak in-band energy from the short window.
         var peakBand = 0.0
         for (i in bandGoertzels.indices) {
             if (isNotched(bandHz[i])) continue
             val m = bandGoertzels[i].magnitude(shortWindow)
             if (m > peakBand) peakBand = m
         }
-        val noise = referenceMedian()
-        val contrast = peakBand / noise.coerceAtLeast(1e-6)
+
+        // Resolution path: fine spectrum, dominant frequency, and the in-band
+        // noise floor (median of the band away from the peak).
+        val fineMags = DoubleArray(fineGoertzels.size)
+        var peakFine = 0.0
+        var peakFineIdx = -1
+        for (i in fineGoertzels.indices) {
+            if (isNotched(fineHz[i])) {
+                fineMags[i] = Double.NaN
+                continue
+            }
+            val m = fineGoertzels[i].magnitude(freqWindow)
+            fineMags[i] = m
+            if (m > peakFine) {
+                peakFine = m
+                peakFineIdx = i
+            }
+        }
+        val noise = inBandFloor(fineMags, peakFineIdx)
+        // NaNs were only placeholders for notched bins; clear them for the view.
+        for (i in fineMags.indices) if (fineMags[i].isNaN()) fineMags[i] = 0.0
+
+        val contrast = peakBand / (noise * floorScale).coerceAtLeast(1e-9)
         val gateOpen = peakBand >= config.absoluteGate
 
         if (!active) {
@@ -202,22 +232,33 @@ class ToneDetector(private val config: DetectorConfig) {
             }
         }
 
-        // Frequency and spectrum path on the longer window.
-        val fineMags = DoubleArray(fineGoertzels.size)
-        var peakFine = 0.0
-        var peakIdx = -1
-        for (i in fineGoertzels.indices) {
-            if (isNotched(fineHz[i])) continue
-            val m = fineGoertzels[i].magnitude(freqWindow)
-            fineMags[i] = m
-            if (m > peakFine) {
-                peakFine = m
-                peakIdx = i
+        val dominantHz = if (peakFineIdx >= 0) interpolatedHz(peakFineIdx, fineMags) else config.centerHz
+        return Detection(active, dominantHz, peakBand, noise, fineMags)
+    }
+
+    /**
+     * Median magnitude of the band excluding the peak and its main lobe, the
+     * estimate of in-band noise. Falls back to all non-peak bins if the guard
+     * leaves too few to be meaningful (a very narrow user band).
+     */
+    private fun inBandFloor(mags: DoubleArray, peakIdx: Int): Double {
+        val kept = ArrayList<Double>(mags.size)
+        for (i in mags.indices) {
+            if (mags[i].isNaN()) continue
+            if (peakIdx >= 0 && abs(i - peakIdx) <= guardBins) continue
+            kept.add(mags[i])
+        }
+        if (kept.size < 3) {
+            kept.clear()
+            for (i in mags.indices) {
+                if (mags[i].isNaN() || i == peakIdx) continue
+                kept.add(mags[i])
             }
         }
-        val dominantHz = if (peakIdx >= 0) interpolatedHz(peakIdx, fineMags) else config.centerHz
-
-        return Detection(active, dominantHz, peakBand, noise, fineMags)
+        if (kept.isEmpty()) return 0.0
+        kept.sort()
+        val mid = kept.size / 2
+        return if (kept.size % 2 == 1) kept[mid] else (kept[mid - 1] + kept[mid]) / 2.0
     }
 
     private fun slideIn(window: FloatArray, hop: FloatArray) {
@@ -228,44 +269,6 @@ class ToneDetector(private val config: DetectorConfig) {
         } else {
             System.arraycopy(window, n, window, 0, w - n)
             System.arraycopy(hop, 0, window, w - n, n)
-        }
-    }
-
-    private fun referenceMedian(): Double {
-        val values = DoubleArray(referenceGoertzels.size)
-        for (i in referenceGoertzels.indices) {
-            values[i] = referenceGoertzels[i].magnitude(shortWindow)
-        }
-        values.sort()
-        val mid = values.size / 2
-        return if (values.size % 2 == 1) {
-            values[mid]
-        } else {
-            (values[mid - 1] + values[mid]) / 2.0
-        }
-    }
-
-    /**
-     * Reference bins sit a guard band beyond each side of the detection band, so
-     * the short window's spectral leakage from an in-band tone does not reach
-     * them. The guard is the window's first-null width.
-     */
-    private fun referenceFrequencies(): DoubleArray {
-        val guard = max(40.0, config.sampleRate.toDouble() / config.windowSize)
-        val span = (config.highHz - config.lowHz).coerceIn(120.0, 400.0)
-        val nyquist = config.sampleRate / 2.0
-        val floorHz = 80.0
-        val ceilHz = nyquist - 80.0
-
-        val perSide = max(1, config.referenceBins / 2)
-        val low = spread(config.lowHz - guard - span, config.lowHz - guard, perSide)
-        val high = spread(config.highHz + guard, config.highHz + guard + span, perSide)
-
-        val refs = (low + high).filter { it in floorHz..ceilHz }.toDoubleArray()
-        return if (refs.isNotEmpty()) {
-            refs
-        } else {
-            doubleArrayOf((config.lowHz - guard).coerceAtLeast(floorHz), config.highHz + guard)
         }
     }
 
