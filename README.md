@@ -28,6 +28,7 @@ You can use any combination of these at once, and the app keeps working with the
 - The chips below the circle turn each output on and off quickly.
 - The number near the top shows the detected pitch in hertz while a tone is present.
 - The bar graph is a live view of the sound in your band. Tap the bar chart button in the top corner to hide it if it is distracting.
+- It's most accurate below speeds of about 30 WPM. However, I expect to be able to raise this significantly in coming versions.
 
 ## Settings
 
