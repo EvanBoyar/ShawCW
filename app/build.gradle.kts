@@ -40,6 +40,21 @@ android {
     buildFeatures {
         compose = true
     }
+
+    // Bundle the project README into the app so the in-app help screen renders
+    // the same document that GitHub shows, without fetching anything at runtime.
+    sourceSets.named("main") {
+        assets.srcDir(layout.buildDirectory.dir("generated/readmeAssets"))
+    }
+}
+
+val copyReadmeToAssets by tasks.registering(Copy::class) {
+    from(rootProject.file("README.md"))
+    into(layout.buildDirectory.dir("generated/readmeAssets"))
+}
+
+tasks.matching { it.name.matches(Regex("merge.*Assets")) }.configureEach {
+    dependsOn(copyReadmeToAssets)
 }
 
 dependencies {

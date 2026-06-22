@@ -82,7 +82,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class Screen { Home, Settings }
+private enum class Screen { Home, Settings, Help }
 
 @Composable
 private fun ShawApp(
@@ -115,8 +115,12 @@ private fun ShawApp(
             onToggleHaptic = { AppState.updateSettings { s -> s.copy(hapticEnabled = it) } },
             onToggleFlashlight = { AppState.updateSettings { s -> s.copy(flashlightEnabled = it) } },
             onToggleColor = { AppState.updateSettings { s -> s.copy(colorEnabled = it) } },
+            onToggleSpectrum = { AppState.updateSettings { s -> s.copy(showSpectrum = it) } },
             onOpenSettings = { screen = Screen.Settings },
+            onOpenHelp = { screen = Screen.Help },
         )
+
+        Screen.Help -> HelpScreen(onBack = { screen = Screen.Home })
 
         Screen.Settings -> SettingsScreen(
             settings = settings,

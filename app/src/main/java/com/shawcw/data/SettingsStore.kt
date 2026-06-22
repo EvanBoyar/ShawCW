@@ -35,6 +35,7 @@ class SettingsStore(context: Context) {
             highHz = prefs[Keys.HIGH] ?: defaults.highHz,
             colorPalette = prefs[Keys.PALETTE]?.let { runCatching { ColorPalette.valueOf(it) }.getOrNull() }
                 ?: defaults.colorPalette,
+            showSpectrum = prefs[Keys.SHOW_SPECTRUM] ?: defaults.showSpectrum,
             vibrationNotchHz = prefs[Keys.NOTCHES]
                 ?.split(",")
                 ?.mapNotNull { it.trim().toDoubleOrNull() }
@@ -51,6 +52,7 @@ class SettingsStore(context: Context) {
             prefs[Keys.LOW] = settings.lowHz
             prefs[Keys.HIGH] = settings.highHz
             prefs[Keys.PALETTE] = settings.colorPalette.name
+            prefs[Keys.SHOW_SPECTRUM] = settings.showSpectrum
             prefs[Keys.NOTCHES] = settings.vibrationNotchHz.joinToString(",")
         }
     }
@@ -63,6 +65,7 @@ class SettingsStore(context: Context) {
         val LOW = doublePreferencesKey("low_hz")
         val HIGH = doublePreferencesKey("high_hz")
         val PALETTE = stringPreferencesKey("color_palette")
+        val SHOW_SPECTRUM = booleanPreferencesKey("show_spectrum")
         val NOTCHES = stringPreferencesKey("vibration_notches")
     }
 }

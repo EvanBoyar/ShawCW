@@ -32,6 +32,9 @@ data class Settings(
 
     val colorPalette: ColorPalette = ColorPalette.SPECTRUM,
 
+    /** Whether the live spectrum is shown on the home screen. */
+    val showSpectrum: Boolean = true,
+
     /** Measured frequencies of the phone's own vibration, to notch out. */
     val vibrationNotchHz: List<Double> = emptyList(),
 )

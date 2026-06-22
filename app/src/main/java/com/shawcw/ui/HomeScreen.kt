@@ -1,5 +1,6 @@
 package com.shawcw.ui
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,9 +10,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.QuestionMark
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Vibration
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -25,14 +30,20 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.shawcw.R
 import com.shawcw.SpectrumState
 import com.shawcw.ToneState
 import com.shawcw.settings.Settings
 import com.shawcw.ui.components.ColorOrb
 import com.shawcw.ui.components.ListenButton
 import com.shawcw.ui.components.SpectrumView
+
+private const val DONATE_URL = "https://buymeacoffee.com/elbow"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,7 +56,9 @@ fun HomeScreen(
     onToggleHaptic: (Boolean) -> Unit,
     onToggleFlashlight: (Boolean) -> Unit,
     onToggleColor: (Boolean) -> Unit,
+    onToggleSpectrum: (Boolean) -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenHelp: () -> Unit,
 ) {
     val activeColor = toneColor(
         settings.colorPalette,
@@ -54,12 +67,39 @@ fun HomeScreen(
         settings.centerHz,
         settings.highHz,
     )
+    val uriHandler = LocalUriHandler.current
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("ShawCW", fontWeight = FontWeight.SemiBold) },
+                navigationIcon = {
+                    Image(
+                        painter = painterResource(R.mipmap.ic_launcher_image),
+                        contentDescription = null,
+                        modifier = Modifier
+                            .padding(start = 12.dp)
+                            .size(34.dp),
+                    )
+                },
+                title = { Text("Shaw CW", fontWeight = FontWeight.SemiBold) },
                 actions = {
+                    IconButton(onClick = { onToggleSpectrum(!settings.showSpectrum) }) {
+                        Icon(
+                            Icons.Filled.BarChart,
+                            contentDescription = if (settings.showSpectrum) "Hide spectrum" else "Show spectrum",
+                            tint = if (settings.showSpectrum) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                    }
+                    IconButton(onClick = onOpenHelp) {
+                        Icon(Icons.Filled.QuestionMark, contentDescription = "Help")
+                    }
+                    IconButton(onClick = { uriHandler.openUri(DONATE_URL) }) {
+                        Icon(Icons.Filled.Favorite, contentDescription = "Support the app", tint = Color(0xFFE5709A))
+                    }
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Filled.Settings, contentDescription = "Settings")
                     }
@@ -91,11 +131,13 @@ fun HomeScreen(
 
             ToneReadout(tone = tone, listening = settings.listening)
 
-            SpectrumView(
-                spectrum = spectrum,
-                barColor = MaterialTheme.colorScheme.primary,
-                floorColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            if (settings.showSpectrum) {
+                SpectrumView(
+                    spectrum = spectrum,
+                    barColor = MaterialTheme.colorScheme.primary,
+                    floorColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
 
             OutputChips(
                 settings = settings,
