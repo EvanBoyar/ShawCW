@@ -29,8 +29,10 @@ android {
         applicationId = "com.shawcw"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        // Overridable from CI (-PappVersionCode / -PappVersionName) so a release
+        // tag sets the APK's internal version; defaults are used for local builds.
+        versionCode = (project.findProperty("appVersionCode") as String?)?.toIntOrNull() ?: 1
+        versionName = (project.findProperty("appVersionName") as String?) ?: "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

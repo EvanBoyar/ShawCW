@@ -6,8 +6,8 @@ Shaw CW is an accessibility app for radio operators who are deaf or hard of hear
 
 The easiest way is to download a ready built APK:
 
-- Go to the **Releases** page of this project on GitHub.
-- Download the `app-debug.apk` attached to the latest release.
+- Go to the [Releases](https://github.com/EvanBoyar/ShawCW/releases) page of this project on GitHub.
+- Download the APK (named `shaw-cw-<version>.apk`) attached to the latest release.
 - Open it on your phone. You may need to allow installing apps from this source the first time.
 
 Each pushed release builds and attaches a fresh APK automatically, so the Releases page always has the current version.
