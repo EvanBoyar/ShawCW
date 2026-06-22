@@ -18,7 +18,7 @@ When the app hears a tone in your chosen frequency band, it fires whichever outp
 
 - **Haptic.** The phone vibrates for as long as the tone lasts. This is the main way the app is meant to be used.
 - **Flashlight.** The camera light flashes with the tone.
-- **Color.** A circle on screen lights up, and its color follows the pitch of the tone, so you can see when an operator drifts off the zero beat frequency.
+- **Color.** A circle on screen lights up, and its color follows the pitch of the tone, so you can see when an operator is off the zero beat frequency.
 
 You can use any combination of these at once, and the app keeps working with the screen off.
 
@@ -33,7 +33,7 @@ You can use any combination of these at once, and the app keeps working with the
 
 Open settings with the gear icon.
 
-- **Tone frequencies.** Center is the tone you hear when the radio is zero beat. Low and high bound how far an operator may drift. The defaults are 500, 600 and 700 Hz.
+- **Tone frequencies.** Center is the tone you hear when the radio is zero beat. Low and high bound how far an operator may vary. The defaults are 500, 600 and 700 Hz.
 - **Feedback.** Turn haptic, flashlight and color on or off.
 - **Color palette.** Choose how pitch maps to color.
 - **Vibration calibration.** The phone's own buzz leaks into the microphone and can trip the detector. Stop listening, put the phone on a quiet surface, and tap **Calibrate**. The app measures the vibration and filters those frequencies out.
