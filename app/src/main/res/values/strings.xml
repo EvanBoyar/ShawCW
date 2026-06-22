@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ShawCW</string>
+    <string name="listening_channel_name">Listening</string>
+    <string name="listening_notification_title">ShawCW is listening</string>
+    <string name="listening_notification_text">Watching for CW tones</string>
+</resources>
