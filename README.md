@@ -60,7 +60,7 @@ The APK lands in `app/build/outputs/apk/debug/`.
 
 ## Support
 
-If Shaw CW is useful to you, you can support its development at [buymeacoffee.com/elbow](https://buymeacoffee.com/elbow). 
+If Shaw CW is useful to you, you can support its development at [buymeacoffee.com/elbow](https://buymeacoffee.com/elbow).
 You can also lend the *other* kind of support by logging an issue or submitting a PR.
 
 ## License
