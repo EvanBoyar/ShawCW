@@ -30,6 +30,13 @@ data class Settings(
     val lowHz: Double = 500.0,
     val highHz: Double = 700.0,
 
+    /**
+     * Detection sensitivity, 0 (least eager) to 1 (most eager). 0.5 is the
+     * baseline tuning. Higher values lower the contrast thresholds so weaker
+     * signals are detected, at the cost of more false triggers.
+     */
+    val sensitivity: Double = 0.5,
+
     val colorPalette: ColorPalette = ColorPalette.SPECTRUM,
 
     /** Whether the live spectrum is shown on the home screen. */

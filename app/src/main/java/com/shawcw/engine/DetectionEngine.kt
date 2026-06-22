@@ -38,7 +38,10 @@ class DetectionEngine(context: Context) {
 
         val config = configFor(initial)
         capture = AudioRecordCapture(sampleRate = config.sampleRate, blockSize = config.hopSize)
-        detector = ToneDetector(config).also { it.setNotches(initial.vibrationNotchHz) }
+        detector = ToneDetector(config).also {
+            it.setNotches(initial.vibrationNotchHz)
+            it.setSensitivity(initial.sensitivity)
+        }
         capture?.start(::onHop)
     }
 
@@ -55,6 +58,7 @@ class DetectionEngine(context: Context) {
             detector = ToneDetector(configFor(newSettings))
         }
         detector?.setNotches(newSettings.vibrationNotchHz)
+        detector?.setSensitivity(newSettings.sensitivity)
     }
 
     private fun configFor(s: Settings): DetectorConfig =
@@ -87,7 +91,7 @@ class DetectionEngine(context: Context) {
             SpectrumState(
                 frequencies = det.binFrequencies,
                 magnitudes = result.magnitudes,
-                noiseFloor = result.noiseFloor,
+                noiseFloor = result.spectrumFloor,
             ),
         )
     }

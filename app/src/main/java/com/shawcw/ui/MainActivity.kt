@@ -116,6 +116,7 @@ private fun ShawApp(
             onToggleFlashlight = { AppState.updateSettings { s -> s.copy(flashlightEnabled = it) } },
             onToggleColor = { AppState.updateSettings { s -> s.copy(colorEnabled = it) } },
             onToggleSpectrum = { AppState.updateSettings { s -> s.copy(showSpectrum = it) } },
+            onSetSensitivity = { AppState.updateSettings { s -> s.copy(sensitivity = it) } },
             onOpenSettings = { screen = Screen.Settings },
             onOpenHelp = { screen = Screen.Help },
         )

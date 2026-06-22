@@ -25,6 +25,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -57,6 +58,7 @@ fun HomeScreen(
     onToggleFlashlight: (Boolean) -> Unit,
     onToggleColor: (Boolean) -> Unit,
     onToggleSpectrum: (Boolean) -> Unit,
+    onSetSensitivity: (Double) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenHelp: () -> Unit,
 ) {
@@ -146,6 +148,11 @@ fun HomeScreen(
                 onToggleColor = onToggleColor,
             )
 
+            SensitivitySlider(
+                value = settings.sensitivity,
+                onChange = onSetSensitivity,
+            )
+
             Spacer(Modifier.height(4.dp))
 
             ListenButton(
@@ -174,6 +181,27 @@ private fun ToneReadout(tone: ToneState, listening: Boolean) {
             text = if (listening) "Tap the button below to stop" else "Tap the button below to start",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun SensitivitySlider(
+    value: Double,
+    onChange: (Double) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text("Sensitivity", style = MaterialTheme.typography.bodyMedium)
+            Text("${(value * 100).toInt()}%", color = MaterialTheme.colorScheme.primary)
+        }
+        Slider(
+            value = value.toFloat().coerceIn(0f, 1f),
+            onValueChange = { onChange(it.toDouble()) },
+            valueRange = 0f..1f,
         )
     }
 }
