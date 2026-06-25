@@ -1,7 +1,9 @@
 package com.shawcw.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,14 +23,14 @@ import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.QuestionMark
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Vibration
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -44,6 +46,7 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.shawcw.BuildConfig
 import com.shawcw.R
 import com.shawcw.SpectrumState
 import com.shawcw.ToneState
@@ -93,22 +96,22 @@ fun HomeScreen(
                         contentDescription = null,
                         modifier = Modifier
                             .padding(start = 12.dp)
-                            .size(34.dp),
+                            .size(48.dp),
                     )
                 },
-                title = { Text("Shaw CW", fontWeight = FontWeight.SemiBold) },
-                actions = {
-                    IconButton(onClick = { onToggleSpectrum(!settings.showSpectrum) }) {
-                        Icon(
-                            Icons.Filled.BarChart,
-                            contentDescription = if (settings.showSpectrum) "Hide spectrum" else "Show spectrum",
-                            tint = if (settings.showSpectrum) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
+                title = {
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text("Shaw CW", fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.size(6.dp))
+                        Text(
+                            text = "v${BuildConfig.VERSION_NAME}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(bottom = 2.dp),
                         )
                     }
+                },
+                actions = {
                     IconButton(onClick = onOpenHelp) {
                         Icon(Icons.Filled.QuestionMark, contentDescription = "Help")
                     }
@@ -125,53 +128,61 @@ fun HomeScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(20.dp),
+                .padding(padding),
         ) {
-            Spacer(Modifier.height(8.dp))
-
-            Box(
+            // Everything above the listen button scrolls; the button itself is
+            // pinned to the bottom so it is always reachable, including in landscape.
+            Column(
                 modifier = Modifier
+                    .weight(1f)
                     .fillMaxWidth()
-                    .height(240.dp),
-                contentAlignment = Alignment.Center,
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
-                ColorOrb(
-                    active = toneActive && settings.colorEnabled,
-                    toneColor = if (settings.colorEnabled) activeColor else MaterialTheme.colorScheme.primary,
+                Spacer(Modifier.height(8.dp))
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(240.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    ColorOrb(
+                        active = toneActive && settings.colorEnabled,
+                        toneColor = if (settings.colorEnabled) activeColor else MaterialTheme.colorScheme.primary,
+                    )
+                }
+
+                ToneReadout(tone = tone, listening = settings.listening)
+
+                if (settings.showSpectrum) {
+                    SpectrumView(
+                        spectrum = spectrum,
+                        barColor = MaterialTheme.colorScheme.primary,
+                        floorColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                OutputChips(
+                    settings = settings,
+                    onToggleHaptic = onToggleHaptic,
+                    onToggleFlashlight = onToggleFlashlight,
+                    onToggleColor = onToggleColor,
+                    onToggleSpectrum = onToggleSpectrum,
+                )
+
+                SensitivitySlider(
+                    value = settings.sensitivity,
+                    onChange = onSetSensitivity,
                 )
             }
-
-            ToneReadout(tone = tone, listening = settings.listening)
-
-            if (settings.showSpectrum) {
-                SpectrumView(
-                    spectrum = spectrum,
-                    barColor = MaterialTheme.colorScheme.primary,
-                    floorColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            OutputChips(
-                settings = settings,
-                onToggleHaptic = onToggleHaptic,
-                onToggleFlashlight = onToggleFlashlight,
-                onToggleColor = onToggleColor,
-            )
-
-            SensitivitySlider(
-                value = settings.sensitivity,
-                onChange = onSetSensitivity,
-            )
-
-            Spacer(Modifier.height(4.dp))
 
             ListenButton(
                 listening = settings.listening,
                 onClick = { onToggleListening(!settings.listening) },
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
             )
         }
     }
@@ -234,45 +245,90 @@ private fun SensitivitySlider(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun OutputChips(
     settings: Settings,
     onToggleHaptic: (Boolean) -> Unit,
     onToggleFlashlight: (Boolean) -> Unit,
     onToggleColor: (Boolean) -> Unit,
+    onToggleSpectrum: (Boolean) -> Unit,
 ) {
-    // Selected chips carry the teal accent; unselected ones stay grey, matching the
-    // top bar convention that colour means on and grey means off.
-    val chipColors = FilterChipDefaults.filterChipColors(
-        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
-    )
+    // Each chip takes an equal share of the width so all four icon-plus-label
+    // chips fit on one row, on any screen size and in landscape.
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        FilterChip(
+        OutputChip(
             selected = settings.hapticEnabled,
             onClick = { onToggleHaptic(!settings.hapticEnabled) },
-            label = { Text("Haptic") },
-            leadingIcon = { Icon(Icons.Filled.Vibration, contentDescription = null) },
-            colors = chipColors,
+            label = "Haptic",
+            icon = Icons.Filled.Vibration,
+            modifier = Modifier.weight(1f),
         )
-        FilterChip(
+        OutputChip(
             selected = settings.flashlightEnabled,
             onClick = { onToggleFlashlight(!settings.flashlightEnabled) },
-            label = { Text("Flash") },
-            leadingIcon = { Icon(Icons.Filled.Bolt, contentDescription = null) },
-            colors = chipColors,
+            label = "Flash",
+            icon = Icons.Filled.Bolt,
+            modifier = Modifier.weight(1f),
         )
-        FilterChip(
+        OutputChip(
             selected = settings.colorEnabled,
             onClick = { onToggleColor(!settings.colorEnabled) },
-            label = { Text("Color") },
-            leadingIcon = { Icon(Icons.Filled.Palette, contentDescription = null) },
-            colors = chipColors,
+            label = "Color",
+            icon = Icons.Filled.Palette,
+            modifier = Modifier.weight(1f),
         )
+        OutputChip(
+            selected = settings.showSpectrum,
+            onClick = { onToggleSpectrum(!settings.showSpectrum) },
+            label = "EQ",
+            icon = Icons.Filled.BarChart,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+// A compact toggle chip that mirrors the Material FilterChip look (teal fill when
+// on, outlined grey when off) but uses tight padding so an icon plus a full label
+// always fit inside an equal-width quarter of the row, with no truncation.
+@Composable
+private fun OutputChip(
+    selected: Boolean,
+    onClick: () -> Unit,
+    label: String,
+    icon: ImageVector,
+    modifier: Modifier = Modifier,
+) {
+    val container = if (selected) {
+        MaterialTheme.colorScheme.primaryContainer
+    } else {
+        Color.Transparent
+    }
+    val content = if (selected) {
+        MaterialTheme.colorScheme.onPrimaryContainer
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Surface(
+        onClick = onClick,
+        modifier = modifier.height(32.dp),
+        shape = RoundedCornerShape(8.dp),
+        color = container,
+        contentColor = content,
+        border = if (selected) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 6.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.size(4.dp))
+            Text(label, maxLines = 1, style = MaterialTheme.typography.labelMedium)
+        }
     }
 }

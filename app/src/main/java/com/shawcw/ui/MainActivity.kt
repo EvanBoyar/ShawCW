@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -102,6 +103,10 @@ private fun ShawApp(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val calibrator = remember { VibrationCalibrator(context) }
+
+    // On Settings/Help, the back gesture returns to Home rather than backgrounding
+    // the app. On Home it stays disabled so back leaves the app as usual.
+    BackHandler(enabled = screen != Screen.Home) { screen = Screen.Home }
 
     when (screen) {
         Screen.Home -> HomeScreen(

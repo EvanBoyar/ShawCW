@@ -31,8 +31,8 @@ android {
         targetSdk = 36
         // Overridable from CI (-PappVersionCode / -PappVersionName) so a release
         // tag sets the APK's internal version; defaults are used for local builds.
-        versionCode = (project.findProperty("appVersionCode") as String?)?.toIntOrNull() ?: 1
-        versionName = (project.findProperty("appVersionName") as String?) ?: "0.1.0"
+        versionCode = (project.findProperty("appVersionCode") as String?)?.toIntOrNull() ?: 4
+        versionName = (project.findProperty("appVersionName") as String?) ?: "0.2.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -75,6 +75,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
